@@ -1,0 +1,55 @@
+name: Check search backends
+
+on:
+  push:
+  pull_request:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  test:
+    strategy:
+      matrix:
+        os: [windows-latest, ubuntu-latest]
+    runs-on: ${{ matrix.os }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.13'
+      - if: runner.os == 'Linux'
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y pocl-opencl-icd
+          python -m pip install -r requirements-opencl.txt
+      - run: python -m pip install -r requirements.txt
+      - run: python -m unittest discover -s tests -v
+      - if: runner.os == 'Windows'
+        shell: pwsh
+        run: |
+          $embed = 'python-3.13.17-embed-amd64.zip'
+          $sha256 = '9e35319bffedab8b36ad44d8f377cb4f1733bcec257a0b6d04d94f01486ddb38'
+          Invoke-WebRequest "https://www.python.org/ftp/python/3.13.17/$embed" -OutFile $embed
+          if ((Get-FileHash $embed -Algorithm SHA256).Hash -ne $sha256) { throw 'Python ZIP checksum mismatch' }
+          python package_windows.py $embed
+          Expand-Archive dist/Solana-Vanity-Windows-x64.zip -DestinationPath dist/smoke
+          Push-Location dist/smoke/Solana-Vanity
+          try {
+            Set-Content address.txt '11111111111111111111111111111111'
+            Set-Content strings.txt '?'
+            cmd.exe /d /c Search.cmd --backend cpu --workers 2 --plain
+            if ($LASTEXITCODE -ne 0) { throw 'Portable CPU search failed' }
+            if ((Get-ChildItem results -Filter '*.json' -Recurse).Count -ne 1) { throw 'Portable result missing' }
+            runtime/python.exe -c "import pyopencl"
+            if ($LASTEXITCODE -ne 0) { throw 'Portable OpenCL dependency import failed' }
+          } finally {
+            Pop-Location
+          }
+      - if: runner.os == 'Windows'
+        uses: actions/upload-artifact@v4
+        with:
+          name: Solana-Vanity-Windows-x64
+          path: dist/Solana-Vanity-Windows-x64.zip
+          if-no-files-found: error

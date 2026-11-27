@@ -1,0 +1,4 @@
+# Enter one pattern per line. Remove the leading # to enable an example.
+# Nova
+# ...Star
+# Nova[CAP]...[CAP](?i:Star)
